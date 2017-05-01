@@ -18,14 +18,15 @@
 #define RIGHT_SENSOR A2
 #define LEFT_ENCODER_PIN 10
 #define RIGHT_ENCODER_PIN 11
-#define SENSOR_SENSITIVITY 11
+#define SENSOR_SENSITIVITY 10
+#define LEFT_SPEED 1570
+#define RIGHT_SPEED 1429
 
 Adafruit_RGBLCDShield lcd = Adafruit_RGBLCDShield();
 Servo LServo, RServo;
 
 enum DIRECTIONS { NORTH, EAST, SOUTH, WEST, NONE };
-enum FLOW_STATE { SETUP_ONE, PATH_PLANNING, GET_TO_GOAL, SETUP_TWO, SHORTEST_PATH, FINISH_STATE, ERROR_STATE };
-enum CELL_STATE { U, V };
+enum FLOW_STATE { SETUP_ONE, PATH_PLANNING, FINISH_STATE, ERROR_STATE };
 enum WALL_STATE { N, W };
 
 int setup_option = 0,
@@ -48,32 +49,34 @@ int setup_option = 0,
     right_distance;
 
 bool looking_for_color = false;
+int color_target_count = 0;
 
 struct cell {
-  bool state, north, south, west, east;
+  int state;
+  bool north, south, west, east;
 };
 
 cell maze[4][4] = {
   {
-    { U, W, N, W, N },
-    { U, W, N, N, N },
-    { U, W, N, N, N },
-    { U, W, N, N, W }
+    { 0, W, N, W, N },
+    { 0, W, N, N, N },
+    { 0, W, N, N, N },
+    { 0, W, N, N, W }
   }, {
-    { U, N, N, W, N },
-    { U, N, N, N, N },
-    { U, N, N, N, N },
-    { U, N, N, N, W }
+    { 0, N, N, W, N },
+    { 0, N, N, N, N },
+    { 0, N, N, N, N },
+    { 0, N, N, N, W }
   }, {
-    { U, N, N, W, N },
-    { U, N, N, N, N },
-    { U, N, N, N, N },
-    { U, N, N, N, W }
+    { 0, N, N, W, N },
+    { 0, N, N, N, N },
+    { 0, N, N, N, N },
+    { 0, N, N, N, W }
   }, {
-    { U, N, W, W, N },
-    { U, N, W, N, N },
-    { U, N, W, N, N },
-    { U, N, W, N, W }
+    { 0, N, W, W, N },
+    { 0, N, W, N, N },
+    { 0, N, W, N, N },
+    { 0, N, W, N, W }
   }
 };
 
@@ -112,17 +115,7 @@ void loop() {
     case PATH_PLANNING:
       runPathPlanning();
       break;
-    case GET_TO_GOAL:
-      runShortestPath();
-      break;
-    case SETUP_TWO:
-      runSecondSetup();
-      break;
-    case SHORTEST_PATH:
-      runShortestPath();
-      break;
     case FINISH_STATE:
-      printHelper("ALL DONE", "WEW");
       delay(10000);
       break;
     case ERROR_STATE:
@@ -289,7 +282,7 @@ void finishInitialSetup() {
   target_row = setup_end_location / 4;
   target_col = setup_end_location % 4;
   robot_state = PATH_PLANNING;
-  maze[current_row][current_col].state = V;
+  maze[current_row][current_col].state = 1;
 }
 
 void runInitialSetup() {
@@ -310,24 +303,6 @@ void runInitialSetup() {
       robot_state = ERROR_STATE;
   }
   delay(200);
-}
-
-void runSecondSetup() {
-  printHelper("GO TO START", "Hit Select");
-  uint8_t buttons;
-  while(!(buttons = lcd.readButtons())) {}
-  if (buttons && BUTTON_SELECT) {
-    brushfire();
-    current_direction = setup_direction;
-    current_row = setup_start_location / 4;
-    current_col = setup_start_location % 4;
-    for (unsigned char i = 0; i < 4; i++) {
-      for (unsigned char j = 0; j < 4; j++) {
-        maze[i][j].state = U;
-      }
-    }
-    robot_state = SHORTEST_PATH;
-  }
 }
 
 void readSensorValues() {
@@ -406,11 +381,16 @@ void readColors() {
 
   int fBlue = pulseIn(SENSOR_OUT, LOW);
 
-  if (looking_for_color && (fRed < 240 || fBlue < 240)) {
+  if (looking_for_color && (fRed < 150 || fBlue < 150)) {
     updateLcdColor();
     looking_for_color = false;
-  } else if (!looking_for_color && !(fRed < 240 || fBlue < 240)) {
+    color_target_count = 75;
+    left_encoder_count = 67;
+    right_encoder_count = 67;
+  } else if (!looking_for_color && (color_target_count <= 0 || target_encoder_count == 0)) {
     lcd.setBacklight(WHITE);
+  } else {
+    color_target_count -= 1;
   }
 }
 
@@ -419,7 +399,7 @@ void markBoard() {
   if (current_direction == EAST) current_col += 1;
   if (current_direction == SOUTH) current_row += 1;
   if (current_direction == WEST) current_col -= 1;
-  maze[current_row][current_col].state = V;
+  maze[current_row][current_col].state += 1;
 }
 
 void getVisitedCount() {
@@ -435,8 +415,7 @@ void getVisitedCount() {
     checkLeftWall();
     checkRightWall();
     printMaze();
-    brushfire();
-    robot_state = GET_TO_GOAL;
+    robot_state += 1;
   }
 }
 
@@ -444,28 +423,28 @@ bool checkWall(int direction_to_check, int distance_to_check) {
   bool isWall = distance_to_check < SENSOR_SENSITIVITY && distance_to_check > 0;
   switch(direction_to_check) {
     case NORTH:
-      if (current_row == 0) return true;
+      if (current_row == 0 || maze[current_row][current_col].north) return true;
       if (isWall && !maze[current_row][current_col].north) {
         maze[current_row][current_col].north = W;
         maze[current_row - 1][current_col].south = W;
       }
       break;
     case EAST:
-      if (current_col == 3) return true;
+      if (current_col == 3 || maze[current_row][current_col].east) return true;
       if (isWall && !maze[current_row][current_col].east) {
         maze[current_row][current_col].east = W;
         maze[current_row][current_col + 1].west = W;
       }
       break;
     case SOUTH:
-      if (current_row == 3) return true;
+      if (current_row == 3 || maze[current_row][current_col].south) return true;
       if (isWall && !maze[current_row][current_col].south) {
         maze[current_row][current_col].south = W;
         maze[current_row + 1][current_col].north = W;
       }
       break;
     case WEST:
-      if (current_col == 0) return true;
+      if (current_col == 0 || maze[current_row][current_col].west) return true;
       if (isWall && !maze[current_row][current_col].west) {
         maze[current_row][current_col].west = W;
         maze[current_row][current_col - 1].east = W;
@@ -487,30 +466,30 @@ bool checkRightWall() {
   return checkWall(updateValue(current_direction, 4, 1), right_distance);
 }
 
-bool checkVisited(int direction_to_check) {
+int checkVisited(int direction_to_check) {
   switch(direction_to_check) {
     case NORTH:
-      return current_row == 0 || maze[current_row - 1][current_col].state;
+      if (current_row != 0) return maze[current_row - 1][current_col].state;
     case EAST:
-      return current_col == 3 || maze[current_row][current_col + 1].state;
+      if (current_col != 3) return maze[current_row][current_col + 1].state;
     case SOUTH:
-      return current_row == 3 || maze[current_row + 1][current_col].state;
+      if (current_row != 3) return maze[current_row + 1][current_col].state;
     case WEST:
-      return current_col == 0 || maze[current_row][current_col - 1].state;
+      if (current_col != 0) return maze[current_row][current_col - 1].state;
     default:
-      return true;
+      return 10;
   }
 }
 
-bool checkFrontVisited() {
+int checkFrontVisited() {
   return checkVisited(current_direction);
 }
 
-bool checkLeftVisited() {
+int checkLeftVisited() {
   return checkVisited(updateValue(current_direction, 4, -1));
 }
 
-bool checkRightVisited() {
+int checkRightVisited() {
   return checkVisited(updateValue(current_direction, 4, 1));
 }
 
@@ -537,32 +516,44 @@ void stop(int x = 100) {
 
 void correctMotion() {
   readSensorValues();
-  if (left_distance == right_distance) {
-    LServo.writeMicroseconds(1540);
-    RServo.writeMicroseconds(1461);
-  }
-  else if (left_distance < 6 || (right_distance >= 8 && right_distance < SENSOR_SENSITIVITY + 1)) {
-    LServo.writeMicroseconds(1543);
-    RServo.writeMicroseconds(1461);
-  } else if (right_distance < 6 || (left_distance >= 8 && left_distance < SENSOR_SENSITIVITY + 1)) {
-    // add more to right wheel
-    LServo.writeMicroseconds(1540);
-    RServo.writeMicroseconds(1458);
+  if (right_distance > SENSOR_SENSITIVITY && left_distance > SENSOR_SENSITIVITY) {
+    LServo.writeMicroseconds(LEFT_SPEED);
+    RServo.writeMicroseconds(RIGHT_SPEED);
+  } else if (left_distance > 10 || left_distance < 1) {
+    if (right_distance > 7) {
+      LServo.writeMicroseconds(LEFT_SPEED + 40);
+      RServo.writeMicroseconds(RIGHT_SPEED);
+
+    } else if (right_distance < 7) {
+      LServo.writeMicroseconds(LEFT_SPEED);
+      RServo.writeMicroseconds(RIGHT_SPEED - 40);
+    } else {
+      LServo.writeMicroseconds(LEFT_SPEED);
+      RServo.writeMicroseconds(RIGHT_SPEED);
+    }
   } else {
-     LServo.writeMicroseconds(1540);
-     RServo.writeMicroseconds(1461);
+    if (left_distance > 7) {
+      LServo.writeMicroseconds(LEFT_SPEED);
+      RServo.writeMicroseconds(RIGHT_SPEED - 40);
+    } else if (left_distance < 7) {
+      LServo.writeMicroseconds(LEFT_SPEED + 40);
+      RServo.writeMicroseconds(RIGHT_SPEED);
+    } else {
+      LServo.writeMicroseconds(LEFT_SPEED);
+      RServo.writeMicroseconds(RIGHT_SPEED);
+    }
   }
 }
 
 void moveForward() {
   looking_for_color = true;
-  setEncoderCounts(144, 0);
-  LServo.writeMicroseconds(1540);
-  RServo.writeMicroseconds(1461);
+  setEncoderCounts(138, 0);
+  LServo.writeMicroseconds(LEFT_SPEED);
+  RServo.writeMicroseconds(RIGHT_SPEED);
   while(target_encoder_count > right_encoder_count && target_encoder_count > left_encoder_count) {
     readColors();
     updateEncoderCounts();
-    correctMotion();
+   correctMotion();
   }
   stop();
   setEncoderCounts();
@@ -597,13 +588,23 @@ void runPathPlanning() {
   bool wallLeft = checkLeftWall();
   bool wallFront = checkFrontWall();
   bool wallRight = checkRightWall();
+  int frontVisited = checkFrontVisited();
+  int leftVisited = checkLeftVisited();
+  int rightVisited = checkRightVisited();
   printMaze();
-  if (!wallFront && !checkFrontVisited()) {
+  if (!wallFront && !frontVisited) {
     markBoard();
     moveForward();
-  } else if (!wallLeft && !checkLeftVisited()) {
+  } else if (!wallLeft && !leftVisited) {
     turnLeft();
-  } else if (!wallRight && !checkRightVisited()) {
+  } else if (!wallRight && !rightVisited) {
+    turnRight();
+  } else if (!wallFront && (wallLeft || frontVisited <= leftVisited) && (wallRight || frontVisited <= rightVisited)) {
+    markBoard();
+    moveForward();
+  } else if (!wallLeft && (wallFront || leftVisited <= frontVisited) && (wallRight || leftVisited <= rightVisited)) {
+    turnLeft();
+  } else if (!wallRight && (wallFront || rightVisited <= frontVisited) && (wallLeft || rightVisited <= leftVisited)) {
     turnRight();
   } else if (!wallFront) {
     markBoard();
@@ -612,96 +613,9 @@ void runPathPlanning() {
     turnLeft();
   } else if (!wallRight) {
     turnRight();
-  } else {
+  }else {
     turnRight();
     turnRight();
   }
   getVisitedCount();
-}
-
-void checkSides(int position) {
-  int row = position / 4;
-  int col = position % 4;
-  int cost = brushfire_maze[row][col] + 1;
-  // if there is no wall west
-  if (!maze[row][col].west && !brushfire_maze[row][col - 1]) {
-    brushfire_maze[row][col - 1] = cost;
-    queue.push(row*4 + (col - 1));
-  }
-  if (!maze[row][col].north && !brushfire_maze[row - 1][col]) {
-    brushfire_maze[row - 1][col] = cost;
-    queue.push((row - 1) * 4 + col);
-  }
-  if (!maze[row][col].east && !brushfire_maze[row][col + 1]) {
-    brushfire_maze[row][col + 1] = cost;
-    queue.push(row * 4 + (col + 1));
-  }
-  if (!maze[row][col].south && !brushfire_maze[row + 1][col]) {
-    brushfire_maze[row + 1][col] = cost;
-    queue.push((row + 1) * 4 + col);
-  }
-}
-
-void brushfire() {
-  brushfire_maze[target_row][target_col] = 1;
-  queue.push(target_row * 4 + target_col);
-  while(!queue.isEmpty()) {
-    int position = queue.pop();
-    checkSides(position);
-  }
-}
-
-int findSmallestNeighbor() {
-  int target_cost = brushfire_maze[current_row][current_col] - 1;
-  cell current_cell = maze[current_row][current_col];
-  if (current_row != 0 && !maze[current_row][current_col].north && brushfire_maze[current_row - 1][current_col] == target_cost) {
-    current_row -= 1;
-    return NORTH;
-  }
-  if (current_col != 3 && !maze[current_row][current_col].east && brushfire_maze[current_row][current_col + 1] == target_cost) {
-    current_col += 1;
-    return EAST;
-  }
-  if (current_row != 3 && !maze[current_row][current_col].south && brushfire_maze[current_row + 1][current_col] == target_cost) {
-    current_row += 1;
-    return SOUTH;
-  }
-  if (current_col != 0 && !maze[current_row][current_col].west && brushfire_maze[current_row][current_col - 1] == target_cost) {
-    current_col -= 1;
-    return WEST;
-  }
-  return NONE;
-}
-
-void turnToNeighbor(int dir) {
-  if (current_direction == dir) return;
-  if (dir == NONE) {
-    current_direction = NONE;
-    robot_state = ERROR_STATE;
-    return;
-  }
-
-  if (updateValue(current_direction, 4, 1) == dir) {
-    turnRight();
-  } else if (updateValue(current_direction, 4, -1) == dir) {
-    turnLeft();
-  } else {
-    turnRight();
-    turnRight();
-  }
-  readAvgSensorValues();
-  printMaze();
-}
-
-void runShortestPath() {
-  readAvgSensorValues();
-  maze[current_row][current_col].state = V;
-  printMaze();
-  if (current_row != target_row || current_col != target_col) {
-    turnToNeighbor(findSmallestNeighbor());
-    if (current_direction != NONE) moveForward();
-  } else {
-    delay(5000);
-    robot_state += 1;
-  }
 }
