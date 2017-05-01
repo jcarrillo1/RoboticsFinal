@@ -18,16 +18,16 @@
 #define RIGHT_SENSOR A2
 #define LEFT_ENCODER_PIN 10
 #define RIGHT_ENCODER_PIN 11
-#define SENSOR_SENSITIVITY 12
-#define LEFT_SPEED 1540
-#define RIGHT_SPEED 1461
+#define SENSOR_SENSITIVITY 10
+#define LEFT_SPEED 1570
+#define RIGHT_SPEED 1429
 
 Adafruit_RGBLCDShield lcd = Adafruit_RGBLCDShield();
 Servo LServo, RServo;
 
 enum DIRECTIONS { NORTH, EAST, SOUTH, WEST, NONE };
 enum FLOW_STATE { SETUP_ONE, PATH_PLANNING, SETUP_TWO, SHORTEST_PATH, FINISH_STATE, ERROR_STATE };
-enum CELL_STATE { U, V, VV, VVV };
+enum CELL_STATE { U, V, VV, VVV, VVVV, VVVVV };
 enum WALL_STATE { N, W };
 
 int setup_option = 0,
@@ -410,7 +410,7 @@ void readColors() {
   if (looking_for_color && (fRed < 150 || fBlue < 150)) {
     updateLcdColor();
     looking_for_color = false;
-    color_target_count = 15;
+    color_target_count = 40;
     left_encoder_count = 67;
     right_encoder_count = 67;
   } else if (!looking_for_color && (color_target_count <= 0 || target_encoder_count == 0)) {
@@ -548,12 +548,12 @@ void correctMotion() {
     RServo.writeMicroseconds(RIGHT_SPEED);
   } else if (left_distance > 10 || left_distance < 1) {
     if (right_distance > 7) {
-      LServo.writeMicroseconds(LEFT_SPEED + 5);
+      LServo.writeMicroseconds(LEFT_SPEED + 40);
       RServo.writeMicroseconds(RIGHT_SPEED);
 
     } else if (right_distance < 7) {
       LServo.writeMicroseconds(LEFT_SPEED);
-      RServo.writeMicroseconds(RIGHT_SPEED - 5);
+      RServo.writeMicroseconds(RIGHT_SPEED - 40);
     } else {
       LServo.writeMicroseconds(LEFT_SPEED);
       RServo.writeMicroseconds(RIGHT_SPEED);
@@ -561,9 +561,9 @@ void correctMotion() {
   } else {
     if (left_distance > 7) {
       LServo.writeMicroseconds(LEFT_SPEED);
-      RServo.writeMicroseconds(RIGHT_SPEED - 5);
+      RServo.writeMicroseconds(RIGHT_SPEED - 40);
     } else if (left_distance < 7) {
-      LServo.writeMicroseconds(LEFT_SPEED + 5);
+      LServo.writeMicroseconds(LEFT_SPEED + 40);
       RServo.writeMicroseconds(RIGHT_SPEED);
     } else {
       LServo.writeMicroseconds(LEFT_SPEED);
@@ -601,8 +601,8 @@ void turnLeft() {
 void turnRight() {
   current_direction = updateValue(current_direction, 4, 1);
   setEncoderCounts(29, 0);
-  LServo.writeMicroseconds(LEFT_SPEED);
-  RServo.writeMicroseconds(LEFT_SPEED);
+  LServo.writeMicroseconds(1540);
+  RServo.writeMicroseconds(1540);
   while(target_encoder_count > right_encoder_count && target_encoder_count > left_encoder_count) {
     updateEncoderCounts();
   }
